@@ -16,6 +16,59 @@ function decodeSseChunk(chunk) {
         .join("");
 }
 
+function normalizeQuickReplies(rawText) {
+    const text = String(rawText || "").trim();
+    if (!text) {
+        throw new Error("AI 输出为空");
+    }
+
+    const stripFence = (value) =>
+        value.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/i, "").trim();
+
+    const tryParse = (value) => {
+        try {
+            return JSON.parse(value);
+        } catch {
+            return null;
+        }
+    };
+
+    const toReplies = (parsed) => {
+        if (Array.isArray(parsed)) return parsed;
+        if (parsed && Array.isArray(parsed.data)) return parsed.data;
+        return null;
+    };
+
+    // 1) 直接按 JSON 解析（数组 / 对象 / 字符串）
+    let parsed = tryParse(stripFence(text));
+    if (typeof parsed === "string") {
+        parsed = tryParse(stripFence(parsed)) ?? parsed;
+    }
+    let replies = toReplies(parsed);
+    if (replies) return replies;
+
+    // 2) 从文本中截取 [] 再解析
+    const start = text.indexOf("[");
+    const end = text.lastIndexOf("]");
+    if (start >= 0 && end > start) {
+        const candidate = text.slice(start, end + 1);
+        parsed = tryParse(candidate);
+        if (!parsed) {
+            // 兼容被转义的 JSON 数组字符串
+            const unescaped = candidate
+                .replace(/\\"/g, "\"")
+                .replace(/\\\\n/g, "\\n")
+                .replace(/\\\\r/g, "\\r")
+                .replace(/\\\\t/g, "\\t");
+            parsed = tryParse(unescaped);
+        }
+        replies = toReplies(parsed);
+        if (replies) return replies;
+    }
+
+    throw new Error("AI 输出格式错误，无法解析为 3 条回复");
+}
+
 createApp({
     setup() {
         const tab = ref("quick");
@@ -119,6 +172,7 @@ createApp({
                 const decoder = new TextDecoder("utf-8");
                 let pending = "";
                 let fullText = "";
+                let completed = false;
                 while (true) {
                     const { value, done } = await reader.read();
                     if (done) break;
@@ -128,17 +182,30 @@ createApp({
                     for (const event of events) {
                         const token = decodeSseChunk(event);
                         if (token) {
-                            fullText += token;
+                            fullText += token + "\n";
                             quick.streamText = fullText;
+                            let payload = null;
+                            try {
+                                payload = JSON.parse(token);
+                            } catch {
+                                payload = null;
+                            }
+                            if (payload && payload.type === "reply" && payload.data) {
+                                quick.replies.push(payload.data);
+                            } else if (payload && payload.type === "complete") {
+                                if (Array.isArray(payload.data)) {
+                                    quick.replies = payload.data;
+                                }
+                                completed = true;
+                            } else if (payload && payload.type === "error") {
+                                throw new Error(payload.data || "快速回复失败");
+                            }
                         }
                     }
                 }
-                const start = fullText.indexOf("[");
-                const end = fullText.lastIndexOf("]");
-                if (start < 0 || end <= start) {
-                    throw new Error("AI 输出格式错误");
+                if (!completed && quick.replies.length === 0) {
+                    quick.replies = normalizeQuickReplies(fullText);
                 }
-                quick.replies = JSON.parse(fullText.slice(start, end + 1));
                 quick.status = "生成完成";
             } catch (error) {
                 quick.status = normalizeError(error);

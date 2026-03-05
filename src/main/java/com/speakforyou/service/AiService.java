@@ -5,6 +5,7 @@ import com.speakforyou.common.BizException;
 import com.speakforyou.model.entity.PersonaEntity;
 import com.speakforyou.model.entity.SceneEntity;
 import com.speakforyou.model.entity.UserEntity;
+import com.fasterxml.jackson.core.type.TypeReference;
 import dev.langchain4j.model.chat.response.ChatResponse;
 import dev.langchain4j.model.chat.response.StreamingChatResponseHandler;
 import dev.langchain4j.model.openai.OpenAiStreamingChatModel;
@@ -13,11 +14,14 @@ import org.springframework.stereotype.Service;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 import java.io.IOException;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
-import java.util.concurrent.atomic.AtomicReference;
+import java.util.concurrent.TimeUnit;
+import java.util.stream.IntStream;
 
 @Service
 public class AiService {
@@ -26,23 +30,61 @@ public class AiService {
     private final String systemApiKey;
     private final String defaultModel;
     private final ObjectMapper objectMapper;
+    private final RagService ragService;
     private final ExecutorService executor = Executors.newCachedThreadPool();
 
     public AiService(
             @Value("${app.dashscope.base-url:https://dashscope.aliyuncs.com/compatible-mode/v1}") String baseUrl,
             @Value("${app.dashscope.system-api-key:}") String systemApiKey,
             @Value("${app.dashscope.default-model:qwen-plus}") String defaultModel,
-            ObjectMapper objectMapper
+            ObjectMapper objectMapper,
+            RagService ragService
     ) {
         this.baseUrl = baseUrl;
         this.systemApiKey = systemApiKey;
         this.defaultModel = defaultModel;
         this.objectMapper = objectMapper;
+        this.ragService = ragService;
     }
 
-    public void streamQuickReply(UserEntity user, PersonaEntity persona, SceneEntity scene, String message, SseEmitter emitter) {
+    public void streamStructuredQuickReply(UserEntity user, PersonaEntity persona, SceneEntity scene, String message, SseEmitter emitter) {
+        executor.submit(() -> {
+            try {
+                List<Map<String, Object>> replies = generateQuickReplyList(user, persona, scene, message);
+                for (Map<String, Object> reply : replies) {
+                    emitter.send(SseEmitter.event().data(objectMapper.writeValueAsString(Map.of(
+                            "type", "reply",
+                            "data", reply
+                    ))));
+                }
+                emitter.send(SseEmitter.event().data(objectMapper.writeValueAsString(Map.of(
+                        "type", "complete",
+                        "data", replies
+                ))));
+                emitter.complete();
+            } catch (Exception e) {
+                try {
+                    emitter.send(SseEmitter.event().data(objectMapper.writeValueAsString(Map.of(
+                            "type", "error",
+                            "data", e.getMessage() == null ? "AI 服务调用失败" : e.getMessage()
+                    ))));
+                } catch (IOException ignored) {
+                }
+                emitter.completeWithError(new BizException(5001, "AI 服务调用失败: " + e.getMessage()));
+            }
+        });
+    }
+
+    private List<Map<String, Object>> generateQuickReplyList(UserEntity user, PersonaEntity persona, SceneEntity scene, String message) {
         String apiKey = user.getApiKey() != null && !user.getApiKey().isBlank() ? user.getApiKey() : systemApiKey;
         String modelName = user.getModelName() == null || user.getModelName().isBlank() ? defaultModel : user.getModelName();
+        List<String> ragHints = ragService.retrieveForQuickReply(apiKey, message, persona.getName(), scene.getName(), 5);
+        String ragBlock = ragHints.isEmpty()
+                ? "（暂无匹配话术）"
+                : IntStream.range(0, ragHints.size())
+                .mapToObj(i -> (i + 1) + ". " + ragHints.get(i))
+                .reduce((a, b) -> a + "\n" + b)
+                .orElse("（暂无匹配话术）");
         String prompt = """
                 你是一位职场沟通助手。
                 人格风格：%s
@@ -53,6 +95,9 @@ public class AiService {
 
                 对方消息：%s
 
+                参考话术（RAG 检索结果）：
+                %s
+
                 请输出严格 JSON 数组，包含 3 条不同风格回复：
                 [{"id":1,"reply":"...","style":"..."},{"id":2,"reply":"...","style":"..."},{"id":3,"reply":"...","style":"..."}]
                 """.formatted(
@@ -62,45 +107,53 @@ public class AiService {
                 scene.getName(),
                 scene.getDescription(),
                 scene.getPromptHint() == null ? "" : scene.getPromptHint(),
-                message
+                message,
+                ragBlock
         );
 
-        executor.submit(() -> {
-            if (apiKey == null || apiKey.isBlank()) {
-                streamFallbackQuickReply(persona, scene, message, emitter);
-                return;
+        if (apiKey == null || apiKey.isBlank()) {
+            return fallbackQuickReplyList(persona, scene);
+        }
+
+        OpenAiStreamingChatModel model = OpenAiStreamingChatModel.builder()
+                .baseUrl(baseUrl)
+                .apiKey(apiKey)
+                .modelName(modelName)
+                .build();
+        StringBuilder full = new StringBuilder();
+        CountDownLatch done = new CountDownLatch(1);
+        List<Throwable> errors = new ArrayList<>();
+        model.chat(prompt, new StreamingChatResponseHandler() {
+            @Override
+            public void onPartialResponse(String partialResponse) {
+                full.append(partialResponse);
             }
-            try {
-                OpenAiStreamingChatModel model = OpenAiStreamingChatModel.builder()
-                        .baseUrl(baseUrl)
-                        .apiKey(apiKey)
-                        .modelName(modelName)
-                        .build();
-                AtomicReference<StringBuilder> full = new AtomicReference<>(new StringBuilder());
-                model.chat(prompt, new StreamingChatResponseHandler() {
-                    @Override
-                    public void onPartialResponse(String partialResponse) {
-                        try {
-                            full.get().append(partialResponse);
-                            emitter.send(partialResponse);
-                        } catch (IOException ignored) {
-                        }
-                    }
 
-                    @Override
-                    public void onCompleteResponse(ChatResponse completeResponse) {
-                        emitter.complete();
-                    }
+            @Override
+            public void onCompleteResponse(ChatResponse completeResponse) {
+                done.countDown();
+            }
 
-                    @Override
-                    public void onError(Throwable error) {
-                        emitter.completeWithError(new BizException(5001, "AI 服务调用失败: " + error.getMessage()));
-                    }
-                });
-            } catch (Exception e) {
-                emitter.completeWithError(new BizException(5001, "AI 服务调用失败: " + e.getMessage()));
+            @Override
+            public void onError(Throwable error) {
+                errors.add(error);
+                done.countDown();
             }
         });
+
+        try {
+            boolean finished = done.await(60, TimeUnit.SECONDS);
+            if (!finished) {
+                throw new BizException(5001, "AI 响应超时");
+            }
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new BizException(5001, "AI 响应中断");
+        }
+        if (!errors.isEmpty()) {
+            throw new BizException(5001, "AI 服务调用失败: " + errors.get(0).getMessage());
+        }
+        return parseQuickReplyList(full.toString(), persona, scene);
     }
 
     public void streamChatReply(UserEntity user, PersonaEntity persona, String message, ChatStreamingCallback callback) {
@@ -153,21 +206,45 @@ public class AiService {
         });
     }
 
-    private void streamFallbackQuickReply(PersonaEntity persona, SceneEntity scene, String message, SseEmitter emitter) {
-        List<Map<String, Object>> replies = List.of(
+    private List<Map<String, Object>> fallbackQuickReplyList(PersonaEntity persona, SceneEntity scene) {
+        return List.of(
                 Map.of("id", 1, "reply", "收到，你这边的诉求我理解了，我会尽快推进并及时给你反馈。", "style", persona.getName() + "-稳妥正式"),
                 Map.of("id", 2, "reply", "明白了，我先把关键点处理掉，稍后把进展同步给你。", "style", persona.getName() + "-简洁高效"),
                 Map.of("id", 3, "reply", "辛苦提醒，咱们按这个方向推进，我这边先落地执行，有进度马上回你。", "style", scene.getName() + "-高情商缓冲")
         );
-        try {
-            String json = objectMapper.writeValueAsString(replies);
-            for (char c : json.toCharArray()) {
-                emitter.send(String.valueOf(c));
-            }
-            emitter.complete();
-        } catch (IOException e) {
-            emitter.completeWithError(new BizException(5001, "AI 服务调用失败: " + e.getMessage()));
+    }
+
+    private List<Map<String, Object>> parseQuickReplyList(String raw, PersonaEntity persona, SceneEntity scene) {
+        String text = raw == null ? "" : raw.trim();
+        if (text.startsWith("```")) {
+            text = text.replaceAll("^```(?:json)?\\s*", "").replaceAll("\\s*```$", "").trim();
         }
+
+        try {
+            Object parsed = objectMapper.readValue(text, Object.class);
+            if (parsed instanceof String parsedString) {
+                parsed = objectMapper.readValue(parsedString, Object.class);
+            }
+            if (parsed instanceof List<?> list) {
+                return objectMapper.convertValue(list, new TypeReference<List<Map<String, Object>>>() {});
+            }
+            if (parsed instanceof Map<?, ?> map && map.get("data") instanceof List<?> dataList) {
+                return objectMapper.convertValue(dataList, new TypeReference<List<Map<String, Object>>>() {});
+            }
+        } catch (Exception ignored) {
+        }
+
+        int start = text.indexOf("[");
+        int end = text.lastIndexOf("]");
+        if (start >= 0 && end > start) {
+            String candidate = text.substring(start, end + 1);
+            try {
+                return objectMapper.readValue(candidate, new TypeReference<List<Map<String, Object>>>() {});
+            } catch (Exception ignored) {
+            }
+        }
+
+        return fallbackQuickReplyList(persona, scene);
     }
 
     public interface ChatStreamingCallback {

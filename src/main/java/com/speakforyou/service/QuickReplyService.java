@@ -37,7 +37,7 @@ public class QuickReplyService {
         SceneEntity scene = sceneService.getById(request.sceneId());
 
         SseEmitter emitter = new SseEmitter(60_000L);
-        aiService.streamQuickReply(user, persona, scene, request.message(), emitter);
+        aiService.streamStructuredQuickReply(user, persona, scene, request.message(), emitter);
         return emitter;
     }
 }
