@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>替你说话 - 登录</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="/css/app.css">
+</head>
+<body class="min-h-screen bg-rose-50 text-rose-950">
+<main class="mx-auto flex min-h-screen max-w-6xl items-center justify-center px-4">
+    <section class="w-full max-w-md rounded-2xl border border-rose-200 bg-white p-8 shadow-lg">
+        <div class="mb-6">
+            <h1 class="text-2xl font-bold text-red-700">替你说话</h1>
+            <p class="mt-2 text-sm text-rose-700">职场沟通 AI 回复助手（MVP）</p>
+        </div>
+        <form id="login-form" class="space-y-4">
+            <div class="space-y-1">
+                <label for="username" class="text-sm font-medium">用户名</label>
+                <input id="username" name="username" required
+                       class="w-full rounded-xl border border-rose-200 px-3 py-2 outline-none transition-colors focus:border-red-600 focus:ring-2 focus:ring-red-200"
+                       placeholder="请输入用户名">
+            </div>
+            <div class="space-y-1">
+                <label for="password" class="text-sm font-medium">密码</label>
+                <input id="password" name="password" type="password" required
+                       class="w-full rounded-xl border border-rose-200 px-3 py-2 outline-none transition-colors focus:border-red-600 focus:ring-2 focus:ring-red-200"
+                       placeholder="请输入密码">
+            </div>
+            <button type="submit"
+                    class="w-full cursor-pointer rounded-xl bg-red-600 px-4 py-2 font-medium text-white transition-colors duration-200 hover:bg-red-700">
+                登录
+            </button>
+            <p id="login-error" class="hidden rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700"></p>
+        </form>
+    </section>
+</main>
+<script type="module" src="/js/login.js"></script>
+</body>
+</html>

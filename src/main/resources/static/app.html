@@ -1,0 +1,115 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>替你说话 - 控制台</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@stomp/stompjs@7.2.0/bundles/stomp.umd.min.js"></script>
+    <link rel="stylesheet" href="/css/app.css">
+</head>
+<body class="min-h-screen bg-rose-50 text-rose-950">
+<header class="sticky top-0 z-10 border-b border-rose-200 bg-white/95 backdrop-blur">
+    <div class="mx-auto flex max-w-7xl items-center justify-between px-4 py-3">
+        <div>
+            <h1 class="text-xl font-bold text-red-700">替你说话</h1>
+            <p class="text-xs text-rose-700">MVP 控制台</p>
+        </div>
+        <div class="flex items-center gap-3">
+            <span id="nickname-display" class="text-sm text-rose-700"></span>
+            <button id="logout-btn" class="cursor-pointer rounded-lg border border-rose-200 px-3 py-1.5 text-sm transition-colors duration-200 hover:bg-rose-100">
+                退出
+            </button>
+        </div>
+    </div>
+    <nav class="mx-auto flex max-w-7xl gap-2 px-4 pb-3">
+        <button class="tab-btn tab-active" data-tab="quick">快速回复</button>
+        <button class="tab-btn" data-tab="chat">对话模式</button>
+        <button class="tab-btn" data-tab="settings">设置</button>
+    </nav>
+</header>
+
+<main class="mx-auto max-w-7xl px-4 py-5">
+    <section id="tab-quick" class="tab-panel space-y-5">
+        <div class="grid gap-4 lg:grid-cols-2">
+            <div class="card space-y-3">
+                <h2 class="text-lg font-semibold text-red-700">生成回复</h2>
+                <label class="text-sm font-medium">人格</label>
+                <select id="quick-persona" class="input-base"></select>
+                <label class="text-sm font-medium">场景</label>
+                <select id="quick-scene" class="input-base"></select>
+                <label class="text-sm font-medium">对方消息</label>
+                <textarea id="quick-message" rows="6" class="input-base resize-y" placeholder="粘贴对方发来的消息"></textarea>
+                <button id="quick-generate-btn" class="primary-btn">生成 3 条回复</button>
+                <p id="quick-status" class="text-sm text-rose-700"></p>
+            </div>
+            <div class="card">
+                <h3 class="mb-3 text-lg font-semibold text-red-700">流式输出</h3>
+                <pre id="quick-stream" class="h-[300px] overflow-auto rounded-xl bg-rose-50 p-3 text-sm"></pre>
+            </div>
+        </div>
+        <div id="quick-replies" class="grid gap-4 md:grid-cols-3"></div>
+    </section>
+
+    <section id="tab-chat" class="tab-panel hidden">
+        <div class="grid gap-4 lg:grid-cols-[280px,1fr]">
+            <aside class="card space-y-3">
+                <h2 class="text-lg font-semibold text-red-700">会话列表</h2>
+                <select id="chat-create-persona" class="input-base"></select>
+                <input id="chat-title" class="input-base" placeholder="新会话标题（可选）">
+                <button id="chat-create-btn" class="primary-btn">新建会话</button>
+                <div id="chat-sessions" class="max-h-[450px] space-y-2 overflow-auto"></div>
+            </aside>
+            <div class="card flex h-[620px] flex-col">
+                <div class="mb-3 flex items-center justify-between">
+                    <h3 id="chat-session-title" class="text-lg font-semibold text-red-700">请选择会话</h3>
+                    <span id="chat-connection-state" class="text-xs text-rose-700">未连接</span>
+                </div>
+                <div id="chat-messages" class="flex-1 space-y-2 overflow-auto rounded-xl bg-rose-50 p-3"></div>
+                <div class="mt-3 flex gap-2">
+                    <textarea id="chat-input" rows="2" class="input-base flex-1 resize-none" placeholder="粘贴对方消息"></textarea>
+                    <button id="chat-send-btn" class="primary-btn w-28">发送</button>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <section id="tab-settings" class="tab-panel hidden space-y-4">
+        <div class="grid gap-4 lg:grid-cols-2">
+            <div class="card space-y-3">
+                <h2 class="text-lg font-semibold text-red-700">个人设置</h2>
+                <input id="settings-nickname" class="input-base" placeholder="昵称">
+                <select id="settings-default-persona" class="input-base"></select>
+                <button id="settings-save-profile" class="primary-btn">保存资料</button>
+                <div id="settings-usage" class="rounded-xl bg-rose-50 p-3 text-sm text-rose-800"></div>
+            </div>
+            <div class="card space-y-3">
+                <h2 class="text-lg font-semibold text-red-700">API Key 与模型</h2>
+                <input id="settings-api-key" class="input-base" placeholder="sk-xxx">
+                <select id="settings-model-name" class="input-base">
+                    <option value="qwen-turbo">qwen-turbo</option>
+                    <option value="qwen-plus">qwen-plus</option>
+                    <option value="qwen-max">qwen-max</option>
+                </select>
+                <div class="flex gap-2">
+                    <button id="settings-save-api" class="primary-btn flex-1">保存 API Key</button>
+                    <button id="settings-clear-api" class="secondary-btn flex-1">清除 API Key</button>
+                </div>
+            </div>
+        </div>
+        <div class="card space-y-3">
+            <h2 class="text-lg font-semibold text-red-700">自定义人格</h2>
+            <div class="grid gap-2 lg:grid-cols-4">
+                <input id="persona-name" class="input-base" placeholder="人格名称">
+                <input id="persona-description" class="input-base" placeholder="风格描述">
+                <input id="persona-tone" class="input-base" placeholder="语气特点">
+                <button id="persona-create-btn" class="primary-btn">新增人格</button>
+            </div>
+            <div id="persona-list" class="space-y-2"></div>
+        </div>
+    </section>
+</main>
+
+<script type="module" src="/js/app.js"></script>
+</body>
+</html>
