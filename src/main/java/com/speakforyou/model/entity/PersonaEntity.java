@@ -24,7 +24,7 @@ public class PersonaEntity {
     private String tone;
 
     @TableField("is_system")
-    private boolean isSystem;
+    private Boolean systemFlag;
 
     @TableField("user_id")
     private Long userId;

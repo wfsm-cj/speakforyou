@@ -42,3 +42,8 @@ app:
     dimension: 1024
   rate-limit:
     max-requests-per-day: 30
+logging:
+  level:
+    com:
+      speakforyou:
+        mapper: debug

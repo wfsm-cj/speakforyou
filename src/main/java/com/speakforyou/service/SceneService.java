@@ -20,7 +20,7 @@ public class SceneService {
 
     public List<SceneDtos.SceneView> list() {
         return sceneMapper.selectList(new LambdaQueryWrapper<SceneEntity>()
-                        .eq(SceneEntity::isSystem, true)
+                        .eq(SceneEntity::getSystemFlag, true)
                         .orderByAsc(SceneEntity::getId))
                 .stream()
                 .map(scene -> new SceneDtos.SceneView(scene.getId(), scene.getName(), scene.getDescription()))

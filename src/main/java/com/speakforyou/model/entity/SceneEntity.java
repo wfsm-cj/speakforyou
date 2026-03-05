@@ -25,7 +25,7 @@ public class SceneEntity {
     private String promptHint;
 
     @TableField("is_system")
-    private boolean isSystem = true;
+    private Boolean systemFlag = true;
 
     @TableField("created_at")
     private LocalDateTime createdAt;

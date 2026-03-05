@@ -22,7 +22,7 @@ public class PersonaService {
 
     public List<PersonaDtos.PersonaView> list(Long userId) {
         return personaMapper.selectList(new LambdaQueryWrapper<PersonaEntity>()
-                        .and(w -> w.eq(PersonaEntity::isSystem, true).or().eq(PersonaEntity::getUserId, userId))
+                        .and(w -> w.eq(PersonaEntity::getSystemFlag, true).or().eq(PersonaEntity::getUserId, userId))
                         .orderByAsc(PersonaEntity::getId))
                 .stream()
                 .map(this::toView)
@@ -34,7 +34,7 @@ public class PersonaService {
         if (persona == null) {
             throw new BizException(4004, "人格不存在");
         }
-        if (!persona.isSystem() && !userId.equals(persona.getUserId())) {
+        if (!Boolean.TRUE.equals(persona.getSystemFlag()) && !userId.equals(persona.getUserId())) {
             throw new BizException(4004, "人格不存在");
         }
         return persona;
@@ -46,7 +46,7 @@ public class PersonaService {
         entity.setName(request.name());
         entity.setDescription(request.description());
         entity.setTone(request.tone());
-        entity.setSystem(false);
+        entity.setSystemFlag(false);
         entity.setUserId(userId);
         entity.setCreatedAt(LocalDateTime.now());
         personaMapper.insert(entity);
@@ -56,7 +56,7 @@ public class PersonaService {
     @Transactional
     public PersonaDtos.PersonaView update(Long userId, Long personaId, PersonaDtos.CreatePersonaRequest request) {
         PersonaEntity entity = getPersonaForUser(userId, personaId);
-        if (entity.isSystem()) {
+        if (Boolean.TRUE.equals(entity.getSystemFlag())) {
             throw new BizException(4001, "系统人格不允许编辑");
         }
         entity.setName(request.name());
@@ -69,7 +69,7 @@ public class PersonaService {
     @Transactional
     public void delete(Long userId, Long personaId) {
         PersonaEntity entity = getPersonaForUser(userId, personaId);
-        if (entity.isSystem()) {
+        if (Boolean.TRUE.equals(entity.getSystemFlag())) {
             throw new BizException(4001, "系统人格不允许删除");
         }
         personaMapper.deleteById(entity.getId());
@@ -81,7 +81,7 @@ public class PersonaService {
                 entity.getName(),
                 entity.getDescription(),
                 entity.getTone(),
-                entity.isSystem()
+                Boolean.TRUE.equals(entity.getSystemFlag())
         );
     }
 }

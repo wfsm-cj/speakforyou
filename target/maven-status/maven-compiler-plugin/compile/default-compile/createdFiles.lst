@@ -47,7 +47,6 @@ com\speakforyou\service\AuthService.class
 com\speakforyou\service\QuickReplyService.class
 com\speakforyou\controller\QuickReplyController.class
 com\speakforyou\model\entity\UserEntity.class
-com\speakforyou\config\DataInitializer.class
 com\speakforyou\mapper\ChatMessageMapper.class
 com\speakforyou\mapper\UserMapper.class
 com\speakforyou\common\BizException.class
